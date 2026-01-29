@@ -77,7 +77,7 @@ public class UILayerItem : MonoBehaviour
     {
         // Acá luego podés cambiar sprite ojo abierto / cerrado
         bool visible = layersController.IsLayerVisible(layerInfo.layerId);
-        primaryPreview.color = visible ? Color.white : new Color(1, 1, 1, 0.35f);
+        //primaryPreview.color = visible ? Color.white : new Color(1, 1, 1, 0.35f);
     }
 
     // ============================= Mask Preview (futuro) =============================
@@ -87,7 +87,6 @@ public class UILayerItem : MonoBehaviour
         secondaryPreview.texture = maskedTexture;
         secondaryPreview.gameObject.SetActive(true);
     }
-
     public void HideMaskedPreview()
     {
         secondaryPreview.gameObject.SetActive(false);

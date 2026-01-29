@@ -20,6 +20,9 @@ public class LayersController : MonoBehaviour
 {
     [Header("Level Root")]
     [SerializeField] private Transform levelRoot;
+    
+    [Header("Level Camera (composite view)")]
+    [SerializeField] private Camera levelCam;
 
     [Header("Runtime Data (Read Only)")]
     [SerializeField] private List<LayerInfo> layers = new();
@@ -158,16 +161,32 @@ public class LayersController : MonoBehaviour
         if (layer.layerRoot == null)
             return;
 
-        // Renderers
+        // 1. Gameplay: colliders
+        foreach (var col2D in layer.layerRoot.GetComponentsInChildren<Collider2D>(true))
+            col2D.enabled = visible;
+        foreach (var col3D in layer.layerRoot.GetComponentsInChildren<Collider>(true))
+            col3D.enabled = visible;
+
+        // 2. Visual: composición del nivel (levelCam)
+        if (levelCam == null)
+            return;
+
+        int unityLayer = LayerMask.NameToLayer(layer.layerId);
+        if (unityLayer == -1)
+        {
+            Debug.LogWarning($"Unity Layer '{layer.layerId}' no existe.");
+            return;
+        }
+
+        if (visible)
+            levelCam.cullingMask |= (1 << unityLayer);   // agregar
+        else
+            levelCam.cullingMask &= ~(1 << unityLayer);  // quitar
+
+        /* Renderers
         foreach (var r in layer.layerRoot.GetComponentsInChildren<Renderer>(true))
-            r.enabled = visible;
+            r.enabled = visible; */
 
-        // 2D Colliders
-        foreach (var c in layer.layerRoot.GetComponentsInChildren<Collider2D>(true))
-            c.enabled = visible;
-
-        // 3D Colliders (seguridad futura)
-        foreach (var c in layer.layerRoot.GetComponentsInChildren<Collider>(true))
-            c.enabled = visible;
     }
+
 }
