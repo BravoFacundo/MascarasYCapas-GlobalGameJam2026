@@ -1,23 +1,38 @@
-using UnityEngine;
+Ôªøusing UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using TMPro;
 
-public class UILayerItem : MonoBehaviour
+public class UILayerItem : MonoBehaviour, IDropHandler
 {
-    [Header("UI References")]
-    [SerializeField] private Button visibilityButton;
-    [SerializeField] private Button lockButton;
-
+    [Header("Main Component")]
     [SerializeField] private RawImage primaryPreview;
-    [SerializeField] private RawImage secondaryPreview;
-
-    [SerializeField] private GameObject lockIcon;
     [SerializeField] private TMP_Text titleText;
+    [SerializeField] private Button stateButton;
+    [SerializeField] private Transform leftContainer;
 
-    // ============================= Runtime =============================
+    [Header("Mask Component")]
+    [SerializeField] private GameObject secondaryContainer;
+    [SerializeField] private RawImage secondaryPreview;
+    [SerializeField] private Button linkButton;
 
+    [Header("Icons")]
+    [SerializeField] private Sprite showIcon;
+    [SerializeField] private Sprite hideIcon;
+    [SerializeField] private Sprite lockIcon;
+    [SerializeField] private Sprite linkIcon;
+    [SerializeField] private Sprite unlinkIcon;
+
+    [Header("References")]
     private LayerInfo layerInfo;
     private LayersController layersController;
+    private Image stateButtonIcon;
+    private Image linkButtonIcon;
+
+    private bool hasMaskedGroup;
+    private bool isMasked;
+    private bool isVisible = true;
+    private bool isLocked;
 
     // ============================= Binding =============================
 
@@ -26,70 +41,185 @@ public class UILayerItem : MonoBehaviour
         layerInfo = info;
         layersController = controller;
 
-        // Texto
-        titleText.text = layerInfo.layerId;
+        // Cache icons
+        stateButtonIcon = stateButton.GetComponent<Image>();
+        linkButtonIcon = linkButton.GetComponent<Image>();
 
-        // Preview principal
+        // Title
+        titleText.text = layerInfo.layerId;
+        name = "LayerItem=" + layerInfo.layerId;
+
+        // Primary preview
         if (layerInfo.previewCamera != null)
             primaryPreview.texture = layerInfo.previewCamera.targetTexture;
 
-        // Estado inicial
-        lockIcon.SetActive(layerInfo.isLocked);
-        secondaryPreview.gameObject.SetActive(false);
+        // Secondary (masked) starts hidden
+        //secondaryContainer.SetActive(false);
+        secondaryPreview.texture = null;
 
-        UpdateVisibilityIcon();
+        // Initial visuals
+        RefreshStateButton();
+        RefreshLinkButton(false);
 
-        // Botones
-        visibilityButton.onClick.RemoveAllListeners();
-        visibilityButton.onClick.AddListener(OnVisibilityClicked);
+        // Button bindings
+        stateButton.onClick.RemoveAllListeners();
+        stateButton.onClick.AddListener(OnStateButtonClicked);
 
-        lockButton.onClick.RemoveAllListeners();
-        lockButton.onClick.AddListener(OnLockClicked);
+        linkButton.onClick.RemoveAllListeners();
+        linkButton.onClick.AddListener(OnLinkButtonClicked);
     }
 
     // ============================= UI Events =============================
 
-    private void OnVisibilityClicked()
+    private void OnStateButtonClicked()
     {
         if (layerInfo == null || layersController == null)
             return;
 
-        if (layerInfo.isLocked)
+        if (layerInfo.isLocked) // Feedback negativo (visual/sonoro luego)
         {
-            // Feedback visual / sonoro en el futuro
-            Debug.Log($"Layer {layerInfo.layerId} est· bloqueada");
+            Debug.Log($"Layer {layerInfo.layerId} est√° bloqueada");
             return;
         }
 
         layersController.ToggleLayerVisibility(layerInfo.layerId);
-        UpdateVisibilityIcon();
+        RefreshStateButton();
     }
 
-    private void OnLockClicked()
+    private void OnLinkButtonClicked()
     {
-        // Solo feedback (tooltip, shake, sonido, etc.)
-        Debug.Log($"Layer {layerInfo.layerId} est· bloqueada");
+        if (!hasMaskedGroup)
+            return;
+
+        // Emitimos intenci√≥n
+        layersController.CancelMaskForLayer(layerInfo.layerId);
+
+        // Volvemos UI a estado base
+        HideMaskedPreview();
     }
 
     // ============================= Visual Updates =============================
 
-    private void UpdateVisibilityIcon()
+    private void RefreshStateButton()
     {
-        // Ac· luego podÈs cambiar sprite ojo abierto / cerrado
+        if (layerInfo.isLocked)
+        {
+            stateButtonIcon.sprite = lockIcon;
+            return;
+        }
+
         bool visible = layersController.IsLayerVisible(layerInfo.layerId);
-        //primaryPreview.color = visible ? Color.white : new Color(1, 1, 1, 0.35f);
+        stateButtonIcon.sprite = visible ? showIcon : hideIcon;
     }
 
-    // ============================= Mask Preview (futuro) =============================
-
-    public void ShowMaskedPreview(RenderTexture maskedTexture)
+    private void RefreshLinkButton(bool linked)
     {
-        secondaryPreview.texture = maskedTexture;
-        secondaryPreview.gameObject.SetActive(true);
+        linkButtonIcon.sprite = linked ? unlinkIcon : linkIcon;
+    }
+
+    // ============================= Mask Preview API (para futuro) =============================
+
+    public void OnDrop(PointerEventData eventData)
+    {
+        // 1. Validar que hay algo dragueado
+        if (eventData.pointerDrag == null) return;
+        
+        // 2. Obtener el controlador de drag
+        var drag = eventData.pointerDrag.GetComponent<UILayerMaskedDrag>();
+        if (drag == null) return;
+
+        // 3. Identificar el LayerItem de origen
+        var sourceLayerItem = drag.OwnerLayerItem;
+        if (sourceLayerItem == null) return;
+        
+        // 4. Evitar auto-drop
+        if (sourceLayerItem == this) return;
+
+        // 5. Obtener el masked container real desde el origen
+        GameObject container = sourceLayerItem.GetSecondaryContainer();
+        if (container == null) return;
+
+        // 6. Si ESTE LayerItem ya ten√≠a uno, lo apaga (Quitar luego)
+        if (secondaryContainer != null)
+        {
+            secondaryContainer.SetActive(false); // Cambiar por destroy luego.
+            secondaryContainer = null;
+        }
+
+        // 7. Transferimos ownership (Actualizamos la referencia al contenedor con el contenedor nuevo.)
+        secondaryContainer = container;
+
+        // 8. Reparent + orden
+        secondaryContainer.transform.SetParent(leftContainer, false);
+        secondaryContainer.transform.SetSiblingIndex(1); // siempre debajo del primary
+        secondaryContainer.SetActive(true);
+
+        // 9. El origen pierde referencia
+        sourceLayerItem.ClearSecondaryState();
+
+        // 10. Estado UI del destino
+        SetMaskedState(true);
+
+        // 11. Confirmamos drop exitoso
+        drag.MarkDropped();
+    }
+    
+    public GameObject GetSecondaryContainer()
+    {
+        return secondaryContainer;
+    }
+    public void ClearSecondaryState()
+    {
+        secondaryContainer = null;
+        hasMaskedGroup = false;
+        RefreshLinkButton(true);
+    }
+
+    public void SetMaskedState(bool masked)
+    {
+        isMasked = masked;
+
+        if (secondaryContainer != null)
+        {
+            secondaryContainer.SetActive(masked);
+            secondaryContainer.transform.SetSiblingIndex(1);
+        }
+
+        // Bot√≥n de link / unlink
+        if (linkButton != null)
+        {
+            var icon = linkButton.GetComponent<Image>();
+            if (icon != null)
+                icon.sprite = masked ? unlinkIcon : linkIcon;
+        }
+
+        // Estado del bot√≥n principal (show / hide / lock)
+        UpdateStateIcon();
+    }
+    private void UpdateStateIcon()
+    {
+        if (stateButton == null) return;
+
+        var icon = stateButton.GetComponent<Image>();
+        if (icon == null) return;
+
+        if (isLocked)
+            icon.sprite = lockIcon;
+        else
+            icon.sprite = isVisible ? showIcon : hideIcon;
+    }
+    public void ShowMaskedPreview(RenderTexture texture)
+    {
+        secondaryPreview.texture = texture;
+        secondaryContainer.SetActive(true);
+        hasMaskedGroup = true;
+        RefreshLinkButton(true);
     }
     public void HideMaskedPreview()
     {
-        secondaryPreview.gameObject.SetActive(false);
         secondaryPreview.texture = null;
+        secondaryContainer.SetActive(false);
+        hasMaskedGroup = false;
+        RefreshLinkButton(false);
     }
 }

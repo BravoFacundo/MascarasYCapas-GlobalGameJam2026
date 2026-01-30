@@ -189,4 +189,29 @@ public class LayersController : MonoBehaviour
 
     }
 
+    public void CancelMaskForLayer(string layerId)
+    {
+        Debug.Log($"Cancel mask for layer {layerId}");
+    }
+    public void AssignMaskToLayer(string targetLayerId)
+    {
+        Debug.Log($"Assign mask to layer {targetLayerId}");
+    }
+
+    public void MoveObjectToMasked(GameObject obj)
+    {
+        if (obj == null) return;
+
+        // Guardamos layer original solo si no existe
+        var original = obj.GetComponent<OriginalLayer>();
+        if (original == null)
+        {
+            original = obj.AddComponent<OriginalLayer>();
+            original.layerId = LayerMask.LayerToName(obj.layer);
+        }
+
+        obj.layer = LayerMask.NameToLayer("Masked");
+    }
+
+
 }
