@@ -30,6 +30,7 @@ public class UILayerItem : MonoBehaviour, IDropHandler
     private Image linkButtonIcon;
 
     private bool hasMaskedGroup;
+
     private bool isMasked;
     private bool isVisible = true;
     private bool isLocked;
@@ -67,6 +68,15 @@ public class UILayerItem : MonoBehaviour, IDropHandler
 
         linkButton.onClick.RemoveAllListeners();
         linkButton.onClick.AddListener(OnLinkButtonClicked);
+    }
+
+    public void Refresh()
+    {
+        if (layerInfo == null) return;
+        Bind(layerInfo, layersController);
+        Debug.Log($"Refreshing " + name);
+        //bool hasMaskedObjects = layerInfo.HasMaskedObjects();
+        //secondaryContainer.SetActive(hasMaskedObjects);
     }
 
     // ============================= UI Events =============================

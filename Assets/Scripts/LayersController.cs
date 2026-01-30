@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 [System.Serializable]
@@ -10,6 +11,7 @@ public class LayerInfo
     [Header("World")]
     public Transform layerRoot;
     public Camera previewCamera;
+    public int unityLayer;
 
     [Header("State")]
     public bool isVisibleInGame;
@@ -25,6 +27,7 @@ public class LayersController : MonoBehaviour
     [SerializeField] private Camera levelCam;
 
     [Header("Runtime Data (Read Only)")]
+    [SerializeField] private LayerInfo maskedLayerInfo;
     [SerializeField] private List<LayerInfo> layers = new();
 
     // ============================= Unity =============================
@@ -70,36 +73,12 @@ public class LayersController : MonoBehaviour
                 layerRoot = layerTransform,
                 previewCamera = layerTransform.GetComponentInChildren<Camera>(true),
                 isLocked = locked,
-                isVisibleInGame = !startInvisible
+                isVisibleInGame = !startInvisible,
+                unityLayer = LayerMask.NameToLayer(id)
             };
 
+            if (info.layerId == "Masked") maskedLayerInfo = info;
             layers.Add(info);
-        }
-    }
-
-    private void ParseLayerName(
-        string name,
-        out string id,
-        out bool isLocked,
-        out bool startInvisible)
-    {
-        id = string.Empty;
-        isLocked = false;
-        startInvisible = false;
-
-        string[] parts = name.Split('=');
-        if (parts.Length < 2)
-            return;
-
-        id = parts[1];
-
-        for (int i = 2; i < parts.Length; i++)
-        {
-            if (parts[i].Equals("Locked", System.StringComparison.OrdinalIgnoreCase))
-                isLocked = true;
-
-            if (parts[i].Equals("StartInvisible", System.StringComparison.OrdinalIgnoreCase))
-                startInvisible = true;
         }
     }
 
@@ -184,8 +163,7 @@ public class LayersController : MonoBehaviour
             levelCam.cullingMask &= ~(1 << unityLayer);  // quitar
 
         /* Renderers
-        foreach (var r in layer.layerRoot.GetComponentsInChildren<Renderer>(true))
-            r.enabled = visible; */
+        foreach (var r in layer.layerRoot.GetComponentsInChildren<Renderer>(true)) r.enabled = visible; */
 
     }
 
@@ -202,16 +180,138 @@ public class LayersController : MonoBehaviour
     {
         if (obj == null) return;
 
-        // Guardamos layer original solo si no existe
-        var original = obj.GetComponent<OriginalLayer>();
+        var realObj = FindRealParentObject(obj);
+        
+        var original = realObj.GetComponent<OriginalLayer>();
         if (original == null)
         {
-            original = obj.AddComponent<OriginalLayer>();
-            original.layerId = LayerMask.LayerToName(obj.layer);
+            original = realObj.AddComponent<OriginalLayer>();
+            original.originalLayerInfo = FindLayerInfoByParsingParent(realObj);
         }
 
-        obj.layer = LayerMask.NameToLayer("Masked");
+        int maskedLayer = LayerMask.NameToLayer("Masked");
+        SetLayerRecursively(realObj, maskedLayer);
+
+        realObj.transform.SetParent(maskedLayerInfo.layerRoot, true);
+    }
+    public void RestoreObjectsFromMasked()
+    {
+        int maskedLayer = LayerMask.NameToLayer("Masked");
+
+        // Copiamos hijos porque vamos a cambiar la jerarquía
+        List<Transform> maskedObjects = new List<Transform>();
+        foreach (Transform child in maskedLayerInfo.layerRoot)
+        {
+            maskedObjects.Add(child);
+        }
+
+        foreach (Transform t in maskedObjects)
+        {
+            var realObj = t.gameObject;
+            var original = realObj.GetComponent<OriginalLayer>();
+
+            if (original == null || original.originalLayerInfo == null)
+                continue;
+
+            LayerInfo originalLayerInfo = original.originalLayerInfo;
+
+            // 🔹 Restaurar layer recursivamente
+            SetLayerRecursively(realObj, originalLayerInfo.unityLayer);
+
+            // 🔹 Restaurar parent
+            realObj.transform.SetParent(originalLayerInfo.layerRoot, true);
+
+            // 🔹 Limpieza
+            Destroy(original);
+        }
     }
 
+
+    private void SetLayerRecursively(GameObject obj, int layer)
+    {
+        obj.layer = layer;
+
+        foreach (Transform child in obj.transform)
+        {
+            SetLayerRecursively(child.gameObject, layer);
+        }
+    }
+
+    // ============================= Check Name Info Functions =============================
+
+    private void ParseLayerName(
+        string name,
+        out string id,
+        out bool isLocked,
+        out bool startInvisible)
+    {
+        id = string.Empty;
+        isLocked = false;
+        startInvisible = false;
+
+        string[] parts = name.Split('=');
+        if (parts.Length < 2)
+            return;
+
+        id = parts[1];
+
+        for (int i = 2; i < parts.Length; i++)
+        {
+            if (parts[i].Equals("Locked", System.StringComparison.OrdinalIgnoreCase))
+                isLocked = true;
+
+            if (parts[i].Equals("StartInvisible", System.StringComparison.OrdinalIgnoreCase))
+                startInvisible = true;
+        }
+    }
+
+    private GameObject FindRealParentObject(GameObject colliderTransform)
+    {
+        if (colliderTransform == null) return null;
+        if (colliderTransform.transform.parent.name.StartsWith("Layer=")) return colliderTransform;
+
+        Transform current = colliderTransform.transform;
+        while (current.parent != null)
+        {
+            Transform parent = current.parent;
+
+            if (parent.name.StartsWith("Layer="))
+            {
+                return current.gameObject;
+            }
+
+            current = parent;
+        }
+        return null;
+    }
+
+    private LayerInfo FindLayerInfoByParsingParent(GameObject realObj)
+    {
+        if (realObj == null || realObj.transform.parent == null)
+            return null;
+
+        Transform parent = realObj.transform.parent;
+
+        if (!parent.name.StartsWith("Layer="))
+            return null;
+
+        // Removemos "Layer="
+        string layerData = parent.name.Substring("Layer=".Length);
+
+        // Cortamos en el próximo '=' si existe
+        int extraIndex = layerData.IndexOf('=');
+        string layerId = extraIndex >= 0
+            ? layerData.Substring(0, extraIndex)
+            : layerData;
+
+        // Buscamos el LayerInfo correspondiente
+        foreach (var layer in layers)
+        {
+            if (layer.layerId == layerId)
+                return layer;
+        }
+
+        return null;
+    }
 
 }

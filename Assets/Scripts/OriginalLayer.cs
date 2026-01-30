@@ -2,5 +2,5 @@ using UnityEngine;
 
 public class OriginalLayer : MonoBehaviour
 {
-    public string layerId;
+    public LayerInfo originalLayerInfo;
 }

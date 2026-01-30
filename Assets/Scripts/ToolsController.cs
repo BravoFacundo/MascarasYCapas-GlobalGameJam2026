@@ -48,6 +48,7 @@ public class MagicWandTool : ITool
 
         GameObject target = hit.collider.gameObject;
         if (target.layer == LayerMask.NameToLayer("Masked")) return;
+        if (target.layer == LayerMask.NameToLayer("Default")) return;
 
         Debug.Log($"[MAGIC WAND] Seleccionado: {target.name}");
         layersController.MoveObjectToMasked(target);
